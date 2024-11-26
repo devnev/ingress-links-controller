@@ -30,16 +30,10 @@ kubectl \
   apply \
   --filename https://kind.sigs.k8s.io/examples/ingress/deploy-ingress-nginx.yaml
 
+# Option `wait --for=create` unavailable in CI
 # Even with `wait --for=create`, we get `error: no matching resources found`
 sleep 3
 
-kubectl \
-  --context $context \
-  wait \
-  --namespace ingress-nginx \
-  pod \
-  --selector=app.kubernetes.io/component=controller \
-  --for=create
 
 kubectl \
   --context $context \
@@ -69,14 +63,10 @@ kubectl \
   pod \
   --selector=app.kubernetes.io/name=ingress-links-controller
 
+# Option `wait --for=create` unavailable in CI
 # Even with `wait --for=create`, we get `error: no matching resources found`
 sleep 3
 
-kubectl wait --context $context \
-  --namespace default \
-  pod \
-  --selector=app.kubernetes.io/name=ingress-links-controller \
-  --for=create
 
 kubectl wait --context $context \
   --namespace default \
