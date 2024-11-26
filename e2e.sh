@@ -2,7 +2,7 @@
 set -xeo pipefail
 
 cluster=ingress-links-controller-test-cluster
-image=docker.io/library/ingress-links-controller:latest
+image=devnev/ingress-links-controller:latest
 context=kind-$cluster
 
 ## Cluster setup

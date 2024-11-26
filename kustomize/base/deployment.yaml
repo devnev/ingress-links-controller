@@ -16,4 +16,4 @@ spec:
       serviceAccountName: controller
       containers:
         - name: controller
-          image: ingress-links-controller:latest
+          image: devnev/ingress-links-controller:latest
