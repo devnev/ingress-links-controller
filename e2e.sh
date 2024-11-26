@@ -7,7 +7,7 @@ context=kind-$cluster
 
 ## Cluster setup
 
-# port mappings and ingress setup from https://kind.sigs.k8s.io/docs/user/ingress/
+# Port mappings and ingress setup from https://kind.sigs.k8s.io/docs/user/ingress/
 
 if ! kind get clusters | grep -q $cluster; then
   kind create cluster --name $cluster --config=- <<EOF
@@ -30,8 +30,8 @@ kubectl \
   apply \
   --filename https://kind.sigs.k8s.io/examples/ingress/deploy-ingress-nginx.yaml
 
-# even with `wait --for=create`, we get `error: no matching resources found`
-sleep 1
+# Even with `wait --for=create`, we get `error: no matching resources found`
+sleep 3
 
 kubectl \
   --context $context \
@@ -50,99 +50,38 @@ kubectl \
   --for=condition=ready \
   --timeout=90s
 
-## Pod (re)deployment
+## Service (re)deployment
 
 docker build -q -t $image .
 
 kind load docker-image $image -n $cluster
 
 kubectl \
+    --context $context \
+    apply \
+    --kustomize ./kustomize/e2e
+
+# Make sure pod actually restarts
+kubectl \
   --context $context \
   delete \
   --ignore-not-found=true \
   pod \
-  controller
+  --selector=app.kubernetes.io/name=ingress-links-controller
 
-kubectl --context $context apply -f - <<EOF
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: controller
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: ingress-links-controller
-rules:
-- apiGroups: ["networking.k8s.io"]
-  resources: ["ingresses"]
-  verbs: ["get", "watch", "list"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: ingress-links-controller
-roleRef:
-  kind: ClusterRole
-  name: ingress-links-controller
-  apiGroup: rbac.authorization.k8s.io
-subjects:
-- kind: ServiceAccount
-  name: controller
-  namespace: default
----
-apiVersion: v1
-kind: Pod
-metadata:
-  name: controller
-  labels:
-    app: controller
-    image_id: "${image_id}"
-spec:
-  serviceAccountName: controller
-  containers:
-  - name: controller
-    image: ingress-links-controller:latest
-    imagePullPolicy: Never
----
-kind: Service
-apiVersion: v1
-metadata:
-  name: controller
-spec:
-  selector:
-    app: controller
-  ports:
-  - port: 80
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ingress
-spec:
-  rules:
-  - host: links.localhost
-    http:
-      paths:
-      - pathType: Prefix
-        path: /
-        backend:
-          service:
-            name: controller
-            port:
-              number: 80
-EOF
+# Even with `wait --for=create`, we get `error: no matching resources found`
+sleep 3
 
 kubectl wait --context $context \
   --namespace default \
   pod \
-  --selector=app=controller \
+  --selector=app.kubernetes.io/name=ingress-links-controller \
   --for=create
 
 kubectl wait --context $context \
   --namespace default \
   pod \
-  --selector=app=controller \
+  --selector=app.kubernetes.io/name=ingress-links-controller \
   --for=condition=ready
 
 ## Check

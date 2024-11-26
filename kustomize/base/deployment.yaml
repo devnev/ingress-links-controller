@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ingress-links-controller
+  template:
+    metadata:
+      name: controller
+      labels:
+        app.kubernetes.io/name: ingress-links-controller
+    spec:
+      serviceAccountName: controller
+      containers:
+        - name: controller
+          image: ingress-links-controller:latest
