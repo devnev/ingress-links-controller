@@ -5,12 +5,12 @@ cluster=ingress-links-controller-test-cluster
 image=docker.io/library/ingress-links-controller:latest
 context=kind-$cluster
 
-docker build -q -t $image .
+## Cluster setup
 
 # port mappings and ingress setup from https://kind.sigs.k8s.io/docs/user/ingress/
 
 if ! kind get clusters | grep -q $cluster; then
-  kind create cluster -n $cluster --config=- <<EOF
+  kind create cluster --name $cluster --config=- <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -25,16 +25,24 @@ nodes:
 EOF
 fi
 
-kubectl --context $context \
+kubectl \
+  --context $context \
   apply \
   --filename https://kind.sigs.k8s.io/examples/ingress/deploy-ingress-nginx.yaml
-kubectl --context $context \
+
+# even with `wait --for=create`, we get `error: no matching resources found`
+sleep 1
+
+kubectl \
+  --context $context \
   wait \
   --namespace ingress-nginx \
   pod \
   --selector=app.kubernetes.io/component=controller \
   --for=create
-kubectl --context $context \
+
+kubectl \
+  --context $context \
   wait \
   --namespace ingress-nginx \
   pod \
@@ -42,9 +50,14 @@ kubectl --context $context \
   --for=condition=ready \
   --timeout=90s
 
+## Pod (re)deployment
+
+docker build -q -t $image .
+
 kind load docker-image $image -n $cluster
 
-kubectl --context $context \
+kubectl \
+  --context $context \
   delete \
   --ignore-not-found=true \
   pod \
@@ -132,18 +145,24 @@ kubectl wait --context $context \
   --selector=app=controller \
   --for=condition=ready
 
+## Check
+
 set +x
+expected='<a href="https://links.localhost">links.localhost</a><br>'
 for i in $(seq 1 10); do
   sleep 2
   response=$(curl --silent --max-time 2 --header 'Host: links.localhost' localhost:8123)
-  if [[ "$response" == '<a href="https://links.localhost">links.localhost</a><br>' ]]; then
+  if [[ "$response" == "$expected" ]]; then
     echo "Success!"
     kind delete cluster -n $cluster
     exit 0
   fi
 done
 
-echo "last response:"
+echo "Response mismatch"
+echo "Expected:"
+echo "$expected"
+ecoh "Last response:"
 echo "$response"
 
 exit 1

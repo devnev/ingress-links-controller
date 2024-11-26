@@ -3,12 +3,10 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
-	"html"
+	"html/template"
 	"log/slog"
 	"maps"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"slices"
@@ -62,9 +60,10 @@ func main() {
 		rw.Header().Add("Content-Type", "text/html")
 		rw.WriteHeader(http.StatusOK)
 		hosts, _ := hostList.Load().([]string)
-		for _, host := range hosts {
-			link := html.EscapeString((&url.URL{Scheme: "https", Host: host}).String())
-			rw.Write([]byte(fmt.Sprintf(`<a href="%s">%s</a><br>`+"\n", link, html.EscapeString(host))))
+		err := tpl.Execute(rw, map[string]any{"Hosts": hosts})
+		if err != nil {
+			log.Error(err, "Failed to execute template for response")
+			panic(http.ErrAbortHandler)
 		}
 	}))
 
@@ -90,3 +89,5 @@ func main() {
 		os.Exit(1)
 	}
 }
+
+var tpl = template.Must(template.New("index").Parse(`{{range .Hosts}}<a href="https://{{.}}">{{.}}</a><br>{{printf "\n" }}{{end}}`))
