@@ -75,10 +75,12 @@ func main() {
 	grp, grpCtx := errgroup.WithContext(sigCtx)
 	grp.Go(func() error {
 		defer cancelSrv()
+		defer log.Info("Manager exited")
 		return m.Start(grpCtx)
 	})
 	grp.Go(func() error {
 		defer cancelSrv()
+		defer log.Info("HTTP server exited")
 		if err := http.ListenAndServe("", http.DefaultServeMux); !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
