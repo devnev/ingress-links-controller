@@ -5,7 +5,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   exit 1
 fi
 
-PATH="$(dirname ${BASH_SOURCE[0]}):$PATH"
+PATH="$(dirname "${BASH_SOURCE[0]}"):$PATH"
 
 log_fatal() {
   log_error "$#"

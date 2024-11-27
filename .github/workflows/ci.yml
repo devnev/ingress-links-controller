@@ -8,11 +8,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: reviewdog/action-shfmt@v1
+        if: ${{ !cancelled() }}
+      - uses: reviewdog/action-shellcheck@v1
+        if: ${{ !cancelled() }}
+        with:
+          check_all_files_with_shebangs: "true"
       - name: Install KinD
+        id: install-kind
         uses: helm/kind-action@v1
+        if: ${{ !cancelled() }}
         with:
           install_only: "true"
       - name: Run E2E
+        if: ${{ !cancelled() && steps.install-kind.conclusion == 'success' }}
         run: |
           ./e2e.sh
 
