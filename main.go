@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"html/template"
 	"log/slog"
 	"maps"
@@ -27,7 +28,34 @@ import (
 func main() {
 	logf.SetLogger(logr.FromSlogHandler(slog.Default().Handler()))
 	log := logf.Log.WithName("ingress-links-controller")
-	m, err := manager.New(config.GetConfigOrDie(), manager.Options{})
+
+	loadTemplates := flag.String("load-templates", "", "Glob pattern for additional templates files to load")
+	template := flag.String("template", "", "Alternative root template to render")
+	kubeContext := flag.String("context", "", "Context from kubeconfig to use, if not the selected context")
+	shutdownTimeout := flag.Duration("shutdown-timeout", 10*time.Second, "Timeout for graceful shutdown on INT or TERM signal")
+
+	flag.Parse()
+
+	if *loadTemplates != "" {
+		if _, err := tpl.ParseGlob(*loadTemplates); err != nil {
+			log.Error(err, "Failed to parse templates from %s", *loadTemplates)
+			os.Exit(1)
+		}
+	}
+	if *template != "" {
+		if _, err := tpl.Parse(*template); err != nil {
+			log.Error(err, "Failed to parse template from --template flag")
+			os.Exit(1)
+		}
+	}
+
+	kubeConf, err := config.GetConfigWithContext(*kubeContext)
+	if err != nil {
+		log.Error(err, "Failed to get kubeconfig")
+		os.Exit(1)
+	}
+
+	m, err := manager.New(kubeConf, manager.Options{})
 	if err != nil {
 		log.Error(err, "Failed to create manager")
 		os.Exit(1)
@@ -94,7 +122,7 @@ func main() {
 
 		select {
 		case <-sigCtx.Done():
-			shutdownCtx, cancelShutdown := context.WithTimeout(srvCtx, 10*time.Second)
+			shutdownCtx, cancelShutdown := context.WithTimeout(srvCtx, *shutdownTimeout)
 			defer cancelShutdown()
 			return server.Shutdown(shutdownCtx)
 		case <-grpCtx.Done():
@@ -107,4 +135,4 @@ func main() {
 	}
 }
 
-var tpl = template.Must(template.New("index").Parse(`{{range .Hosts}}<a href="https://{{.}}">{{.}}</a><br>{{printf "\n" }}{{end}}`))
+var tpl = template.Must(template.New(".").Parse(`{{range .Hosts}}<a href="https://{{.}}">{{.}}</a><br>{{printf "\n" }}{{end}}`))
