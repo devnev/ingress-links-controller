@@ -17,3 +17,6 @@ spec:
       containers:
         - name: controller
           image: devnev/ingress-links-controller:latest
+          ports:
+            - name: http
+              containerPort: 80
