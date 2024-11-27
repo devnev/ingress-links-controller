@@ -12,6 +12,7 @@ import (
 	"slices"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/go-logr/logr"
 	"golang.org/x/sync/errgroup"
@@ -66,13 +67,11 @@ func main() {
 			panic(http.ErrAbortHandler)
 		}
 	}))
+	server := &http.Server{Handler: http.DefaultServeMux}
 
 	srvCtx, cancelSrv := context.WithCancel(context.Background())
 
-	sigCtx, sigStop := signal.NotifyContext(srvCtx, os.Interrupt, syscall.SIGTERM)
-	defer sigStop()
-
-	grp, grpCtx := errgroup.WithContext(sigCtx)
+	grp, grpCtx := errgroup.WithContext(srvCtx)
 	grp.Go(func() error {
 		defer cancelSrv()
 		defer log.Info("Manager exited")
@@ -81,10 +80,26 @@ func main() {
 	grp.Go(func() error {
 		defer cancelSrv()
 		defer log.Info("HTTP server exited")
-		if err := http.ListenAndServe("", http.DefaultServeMux); !errors.Is(err, http.ErrServerClosed) {
+		if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
 		return nil
+	})
+	grp.Go(func() error {
+		defer cancelSrv()
+		defer server.Close()
+
+		sigCtx, sigStop := signal.NotifyContext(srvCtx, os.Interrupt, syscall.SIGTERM)
+		defer sigStop()
+
+		select {
+		case <-sigCtx.Done():
+			shutdownCtx, cancelShutdown := context.WithTimeout(srvCtx, 10*time.Second)
+			defer cancelShutdown()
+			return server.Shutdown(shutdownCtx)
+		case <-grpCtx.Done():
+			return nil
+		}
 	})
 	if err = grp.Wait(); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error(err, "Serving failed")
