@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+echo -ne "\033[32m$1\033[0m" >&2
+shift
+if [[ $# -eq 0 ]]; then
+  echo >&2
+else
+  echo " $*" >&2
+fi

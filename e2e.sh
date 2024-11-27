@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
-set -eo pipefail
-
-logrun() {
-    echo "+ $*" >&2
-    "$@"
-}
-
-set -x
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+source "${script_dir}/e2e_scripts/prelude"
+set -x # Use helper scripts (not functions) to keep set -x output meaningful
 
 cluster=ingress-links-controller-test-cluster
 image=devnev/ingress-links-controller:latest
@@ -38,8 +33,17 @@ kubectl \
   --filename https://kind.sigs.k8s.io/examples/ingress/deploy-ingress-nginx.yaml
 
 # Option `wait --for=create` unavailable in CI
-# Even with `wait --for=create`, we get `error: no matching resources found`
+# Even with `wait --for=create`, we can get `error: no matching resources found`
 sleep 5
+run_if_ci sleep 10
+run_if_not_ci \
+  kubectl \
+  --context $context \
+  wait \
+  --namespace ingress-nginx \
+  pod \
+  --selector=app.kubernetes.io/component=controller \
+  --for=create
 
 kubectl \
   --context $context \
@@ -52,14 +56,14 @@ kubectl \
 
 ## Service (re)deployment
 
-docker build -q -t $image .
+docker build --quiet --tag $image .
 
 kind load docker-image $image -n $cluster
 
 kubectl \
-    --context $context \
-    apply \
-    --kustomize ./kustomize/e2e
+  --context $context \
+  apply \
+  --kustomize ./kustomize/e2e
 
 # Make sure pod actually restarts
 kubectl \
@@ -70,10 +74,21 @@ kubectl \
   --selector=app.kubernetes.io/name=ingress-links-controller
 
 # Option `wait --for=create` unavailable in CI
-# Even with `wait --for=create`, we get `error: no matching resources found`
+# Even with `wait --for=create`, we can get `error: no matching resources found`
 sleep 5
+run_if_ci sleep 10
+run_if_not_ci \
+  kubectl \
+  --context $context \
+  wait \
+  --namespace default \
+  pod \
+  --selector=app.kubernetes.io/name=ingress-links-controller \
+  --for=create
 
-kubectl wait --context $context \
+kubectl \
+  --context $context \
+  wait \
   --namespace default \
   pod \
   --selector=app.kubernetes.io/name=ingress-links-controller \
@@ -81,22 +96,18 @@ kubectl wait --context $context \
 
 ## Check
 
-set +x
-expected='<a href="https://links.localhost">links.localhost</a><br>'
-for i in $(seq 1 10); do
-  sleep 2
-  response=$(logrun curl --silent --max-time 2 --header 'Host: links.localhost' localhost:8123)
-  if [[ "$response" == "$expected" ]]; then
-    echo "Success!"
-    logrun kind delete cluster -n $cluster
-    exit 0
-  fi
-done
+expect_output \
+  --expected '<a href="https://links.localhost">links.localhost</a><br>' \
+  --attempts 10 \
+  --sleep 2 \
+  curl \
+  --silent \
+  --max-time 2 \
+  --header 'Host: links.localhost' \
+  localhost:8123
 
-echo "Response mismatch"
-echo "Expected:"
-echo "$expected"
-ecoh "Last response:"
-echo "$response"
+log_success Success!
 
-exit 1
+## Cleanup
+
+kind delete cluster -n $cluster

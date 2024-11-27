@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  echo "This script must be sourced"
+  exit 1
+fi
+
+PATH="$(dirname ${BASH_SOURCE[0]}):$PATH"
+
+log_fatal() {
+  log_error "$#"
+  exit 1
+}
+
+set -euo pipefail

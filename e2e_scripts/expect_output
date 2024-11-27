@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+source "${script_dir}/prelude"
+# set -x
+
+expected=""
+attempts=1
+sleep=1
+seen_expected=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+  --attempts)
+    shift
+    attempts="$1"
+    shift
+    ;;
+  --sleep)
+    shift
+    sleep="$1"
+    shift
+    ;;
+  --expected)
+    shift
+    expected="$1"
+    seen_expected=1
+    shift
+    ;;
+  *) break ;;
+  esac
+done
+
+if [[ "$expected" == "-" || "$seen_expected" -eq 0 ]]; then
+  # https://unix.stackexchange.com/questions/716438/whats-wrong-with-var-dev-stdin-to-read-stdin-into-a-variable
+  expected="$(cat)"
+fi
+
+if ! [[ "$attempts" =~ ^[1-9][0-9]*$ ]]; then
+  echo "--attempts must be a number"
+fi
+
+if ! [[ "$sleep" =~ ^[1-9][0-9]*$ ]]; then
+  echo "--sleep must be a number"
+fi
+
+for i in $(seq 1 $attempts); do
+  sleep $sleep
+  output=$(log_run "$@")
+  if [[ "$output" == "$expected" ]]; then
+    exit 0
+  fi
+done
+
+log_error "Output did not match expectation" "from command $*"
+echo "Last output:"
+echo "$output"
+
+exit 1
