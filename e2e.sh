@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-set -xeo pipefail
+set -eo pipefail
+
+logrun() {
+    echo "+ $*" >&2
+    "$@"
+}
+
+set -x
 
 cluster=ingress-links-controller-test-cluster
 image=devnev/ingress-links-controller:latest
@@ -32,8 +39,7 @@ kubectl \
 
 # Option `wait --for=create` unavailable in CI
 # Even with `wait --for=create`, we get `error: no matching resources found`
-sleep 3
-
+sleep 5
 
 kubectl \
   --context $context \
@@ -65,8 +71,7 @@ kubectl \
 
 # Option `wait --for=create` unavailable in CI
 # Even with `wait --for=create`, we get `error: no matching resources found`
-sleep 3
-
+sleep 5
 
 kubectl wait --context $context \
   --namespace default \
@@ -80,10 +85,10 @@ set +x
 expected='<a href="https://links.localhost">links.localhost</a><br>'
 for i in $(seq 1 10); do
   sleep 2
-  response=$(curl --silent --max-time 2 --header 'Host: links.localhost' localhost:8123)
+  response=$(logrun curl --silent --max-time 2 --header 'Host: links.localhost' localhost:8123)
   if [[ "$response" == "$expected" ]]; then
     echo "Success!"
-    kind delete cluster -n $cluster
+    logrun kind delete cluster -n $cluster
     exit 0
   fi
 done
