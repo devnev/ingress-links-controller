@@ -25,6 +25,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+type TemplateData struct {
+	Hosts []string
+}
+
 func main() {
 	logf.SetLogger(logr.FromSlogHandler(slog.Default().Handler()))
 	log := logf.Log.WithName("ingress-links-controller")
@@ -89,7 +93,7 @@ func main() {
 		rw.Header().Add("Content-Type", "text/html")
 		rw.WriteHeader(http.StatusOK)
 		hosts, _ := hostList.Load().([]string)
-		err := tpl.Execute(rw, map[string]any{"Hosts": hosts})
+		err := tpl.Execute(rw, TemplateData{Hosts: hosts})
 		if err != nil {
 			log.Error(err, "Failed to execute template for response")
 			panic(http.ErrAbortHandler)
