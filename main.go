@@ -9,25 +9,26 @@ import (
 	"maps"
 	"net/http"
 	"os"
-	"os/signal"
 	"slices"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/go-logr/logr"
-	"golang.org/x/sync/errgroup"
 	netv1 "k8s.io/api/networking/v1"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 type TemplateData struct {
 	Hosts []string
 }
+
+var tpl = template.Must(template.New(".").Parse(`{{range .Hosts}}<a href="https://{{.}}">{{.}}</a><br>{{printf "\n" }}{{end}}`))
 
 func main() {
 	logf.SetLogger(logr.FromSlogHandler(slog.Default().Handler()))
@@ -67,9 +68,26 @@ func main() {
 
 	var hostList atomic.Value
 
-	if err = builder.ControllerManagedBy(m).For(&netv1.Ingress{}).Complete(reconcile.Func(func(ctx context.Context, r reconcile.Request) (reconcile.Result, error) {
+	if err = builder.ControllerManagedBy(m).For(&netv1.Ingress{}).Complete(buildReconciler(m.GetClient(), &hostList)); err != nil {
+		log.Error(err, "Failed to create controller")
+	}
+
+	m.Add(&manager.Server{
+		Name:            "main",
+		Server:          buildServer(log, &hostList),
+		ShutdownTimeout: shutdownTimeout,
+	})
+
+	if err := m.Start(signals.SetupSignalHandler()); !errors.Is(err, context.Canceled) {
+		log.Error(err, "Manager failed")
+		os.Exit(1)
+	}
+}
+
+func buildReconciler(kubeClient client.Client, hostList *atomic.Value) reconcile.TypedReconciler[reconcile.Request] {
+	return reconcile.Func(func(ctx context.Context, r reconcile.Request) (reconcile.Result, error) {
 		is := &netv1.IngressList{}
-		if err := m.GetClient().List(ctx, is); err != nil {
+		if err := kubeClient.List(ctx, is); err != nil {
 			return reconcile.Result{}, err
 		}
 
@@ -85,11 +103,12 @@ func main() {
 		hostList.Store(slices.Sorted(maps.Keys(hostSet)))
 
 		return reconcile.Result{}, nil
-	})); err != nil {
-		log.Error(err, "Failed to create controller")
-	}
+	})
+}
 
-	http.Handle("GET /{$}", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+func buildServer(log logr.Logger, hostList *atomic.Value) *http.Server {
+	mux := http.NewServeMux()
+	mux.Handle("GET /{$}", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		rw.Header().Add("Content-Type", "text/html")
 		rw.WriteHeader(http.StatusOK)
 		hosts, _ := hostList.Load().([]string)
@@ -99,44 +118,5 @@ func main() {
 			panic(http.ErrAbortHandler)
 		}
 	}))
-	server := &http.Server{Handler: http.DefaultServeMux}
-
-	srvCtx, cancelSrv := context.WithCancel(context.Background())
-
-	grp, grpCtx := errgroup.WithContext(srvCtx)
-	grp.Go(func() error {
-		defer cancelSrv()
-		defer log.Info("Manager exited")
-		return m.Start(grpCtx)
-	})
-	grp.Go(func() error {
-		defer cancelSrv()
-		defer log.Info("HTTP server exited")
-		if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-			return err
-		}
-		return nil
-	})
-	grp.Go(func() error {
-		defer cancelSrv()
-		defer server.Close()
-
-		sigCtx, sigStop := signal.NotifyContext(srvCtx, os.Interrupt, syscall.SIGTERM)
-		defer sigStop()
-
-		select {
-		case <-sigCtx.Done():
-			shutdownCtx, cancelShutdown := context.WithTimeout(srvCtx, *shutdownTimeout)
-			defer cancelShutdown()
-			return server.Shutdown(shutdownCtx)
-		case <-grpCtx.Done():
-			return nil
-		}
-	})
-	if err = grp.Wait(); err != nil && !errors.Is(err, context.Canceled) {
-		log.Error(err, "Serving failed")
-		os.Exit(1)
-	}
+	return &http.Server{Handler: mux}
 }
-
-var tpl = template.Must(template.New(".").Parse(`{{range .Hosts}}<a href="https://{{.}}">{{.}}</a><br>{{printf "\n" }}{{end}}`))
