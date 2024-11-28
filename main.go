@@ -18,9 +18,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -60,7 +62,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	m, err := manager.New(kubeConf, manager.Options{})
+	m, err := manager.New(kubeConf, manager.Options{
+		Metrics:                server.Options{BindAddress: ":8080"},
+		HealthProbeBindAddress: ":8081",
+		LivenessEndpointName:   "/alive",
+		ReadinessEndpointName:  "/ready",
+	})
 	if err != nil {
 		log.Error(err, "Failed to create manager")
 		os.Exit(1)
@@ -68,11 +75,19 @@ func main() {
 
 	var hostList atomic.Value
 
+	_ = m.AddHealthzCheck("ping", healthz.Ping)
+	_ = m.AddReadyzCheck("have-host-list", func(req *http.Request) error {
+		if hostList.Load() == nil {
+			return errors.New("host list not loaded")
+		}
+		return nil
+	})
+
 	if err = builder.ControllerManagedBy(m).For(&netv1.Ingress{}).Complete(buildReconciler(m.GetClient(), &hostList)); err != nil {
 		log.Error(err, "Failed to create controller")
 	}
 
-	m.Add(&manager.Server{
+	_ = m.Add(&manager.Server{
 		Name:            "main",
 		Server:          buildServer(log, &hostList),
 		ShutdownTimeout: shutdownTimeout,
