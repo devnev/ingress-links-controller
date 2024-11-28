@@ -81,7 +81,7 @@ run_if_not_ci \
   kubectl \
   --context $context \
   wait \
-  --namespace default \
+  --namespace ingress-links \
   pod \
   --selector=app.kubernetes.io/name=ingress-links-controller \
   --for=create
@@ -89,7 +89,7 @@ run_if_not_ci \
 kubectl \
   --context $context \
   wait \
-  --namespace default \
+  --namespace ingress-links \
   pod \
   --selector=app.kubernetes.io/name=ingress-links-controller \
   --for=condition=ready

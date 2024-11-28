@@ -3,7 +3,7 @@ kind: Kustomization
 
 resources:
   - ingress.yaml
-  - ../base
+  - ../with-namespace
 
 patches:
   - path: neverPullImage.yaml
