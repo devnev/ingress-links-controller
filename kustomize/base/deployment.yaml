@@ -17,6 +17,13 @@ spec:
       containers:
         - name: controller
           image: devnev/ingress-links-controller:latest
+          resources:
+            requests:
+              cpu: 0.01
+              memory: 20Mi
+            limits:
+              cpu: 0.01
+              memory: 30Mi
           ports:
             - name: http
               containerPort: 80
