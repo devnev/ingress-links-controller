@@ -83,7 +83,7 @@ func main() {
 		return nil
 	})
 
-	if err = builder.ControllerManagedBy(m).For(&netv1.Ingress{}).Complete(buildReconciler(m.GetClient(), &data)); err != nil {
+	if err = builder.ControllerManagedBy(m).For(&netv1.Ingress{}).Complete(buildReconciler(log, m.GetClient(), &data)); err != nil {
 		log.Error(err, "Failed to create controller")
 	}
 
@@ -99,7 +99,7 @@ func main() {
 	}
 }
 
-func buildReconciler(kubeClient client.Client, data *atomic.Pointer[templateValues]) reconcile.TypedReconciler[reconcile.Request] {
+func buildReconciler(log logr.Logger, kubeClient client.Client, data *atomic.Pointer[templateValues]) reconcile.TypedReconciler[reconcile.Request] {
 	return reconcile.Func(func(ctx context.Context, r reconcile.Request) (reconcile.Result, error) {
 		is := &netv1.IngressList{}
 		if err := kubeClient.List(ctx, is); err != nil {
@@ -115,7 +115,10 @@ func buildReconciler(kubeClient client.Client, data *atomic.Pointer[templateValu
 			}
 		}
 
-		data.Store(&templateValues{Hosts: slices.Sorted(maps.Keys(hosts))})
+		old := data.Swap(&templateValues{Hosts: slices.Sorted(maps.Keys(hosts))})
+		if old == nil {
+			log.Info("First reconcile completed")
+		}
 
 		return reconcile.Result{}, nil
 	})
