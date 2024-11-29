@@ -23,7 +23,7 @@ spec:
               cpu: 0.01
               memory: 20Mi
             limits:
-              cpu: 0.01
+              cpu: 0.1
               memory: 30Mi
           ports:
             - name: http
