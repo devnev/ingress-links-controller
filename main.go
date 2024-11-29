@@ -26,12 +26,13 @@ import (
 )
 
 type templateValues struct {
-	Hosts map[string]hostValues
+	Hosts map[string]*hostValues
 }
 
 type hostValues struct {
-	Host string
-	Text template.HTML
+	Host  string
+	Text  template.HTML
+	Paths map[string]*pathValues
 }
 
 type hostTemplateValue struct {
@@ -40,10 +41,25 @@ type hostTemplateValue struct {
 	Rule    *netv1.IngressRule
 }
 
-var srvTpl = template.Must(template.New(".").Parse(`{{range .Hosts}}<a href="https://{{.Host}}">{{or .Text .Host}}</a><br>{{printf "\n" }}{{end}}`))
+type pathValues struct {
+	Path string
+	Text template.HTML
+}
+
+type pathTemplateValue struct {
+	Ingress *netv1.Ingress
+	Rule    *netv1.IngressRule
+	Path    *netv1.HTTPIngressPath
+}
+
+var srvTpl = template.Must(template.New(".").Parse(`
+{{- range .Hosts}}<a href="https://{{.Host}}">{{or .Text .Host}}</a><br>
+{{$host := .Host}}{{range .Paths}}{{if ne .Path "/"}}<a href="https://{{$host}}/{{.Path}}"><br>{{or .Text .Path}}
+{{end}}{{end}}{{end}}`))
 
 const (
 	hostTemplateAnnotation = "ingress-links.nev.dev/host-template"
+	pathTemplateAnnotation = "ingress-links.nev.dev/path-template"
 )
 
 func main() {
@@ -126,7 +142,7 @@ func buildReconciler(log logr.Logger, kubeClient client.Client, data *atomic.Poi
 			return reconcile.Result{}, err
 		}
 
-		hosts := map[string]hostValues{}
+		hosts := map[string]*hostValues{}
 		var err error
 		for _, item := range is.Items {
 			var hostTpl *template.Template
@@ -136,15 +152,33 @@ func buildReconciler(log logr.Logger, kubeClient client.Client, data *atomic.Poi
 					return reconcile.Result{}, err
 				}
 				if _, err = hostTpl.Parse(template); err != nil {
-					log.Error(err, "Failed to parse host template from %s annotation for ingress %s/%s, skipping ingress", hostTemplateAnnotation, item.Namespace, item.Name)
+					log.Error(err, "Failed to parse host template from %s annotation for ingress %s/%s", hostTemplateAnnotation, item.Namespace, item.Name)
+					hostTpl = nil
+				}
+			}
+
+			var pathTpl *template.Template
+			if template := item.Annotations[pathTemplateAnnotation]; template != "" {
+				pathTpl, err = tpl.Clone()
+				if err != nil {
+					return reconcile.Result{}, err
+				}
+				if _, err = pathTpl.Parse(template); err != nil {
+					log.Error(err, "Failed to parse path template from %s annotation for ingress %s/%s", pathTemplateAnnotation, item.Namespace, item.Name)
+					pathTpl = nil
 				}
 			}
 
 			for _, rule := range item.Spec.Rules {
 				if host := rule.Host; host != "" {
-					hv := hostValues{
-						Host: host,
+					if hosts[host] == nil {
+						hosts[host] = &hostValues{
+							Host:  host,
+							Paths: map[string]*pathValues{},
+						}
 					}
+					hv := hosts[host]
+
 					if hostTpl != nil {
 						var sb strings.Builder
 						if err := hostTpl.Execute(&sb, hostTemplateValue{
@@ -158,7 +192,37 @@ func buildReconciler(log logr.Logger, kubeClient client.Client, data *atomic.Poi
 						}
 					}
 
-					hosts[host] = hv
+					for _, path := range rule.HTTP.Paths {
+						pv := pathValues{}
+						switch {
+						case path.PathType == nil:
+						case *path.PathType == netv1.PathTypeExact:
+							pv.Path = path.Path
+						case *path.PathType == netv1.PathTypePrefix:
+							pv.Path = path.Path
+						}
+
+						if hv.Paths[pv.Path] != nil {
+							continue
+						}
+
+						if pathTpl != nil {
+							var sb strings.Builder
+							if err := pathTpl.Execute(&sb, hostTemplateValue{
+								Host:    host,
+								Ingress: &item,
+								Rule:    &rule,
+							}); err != nil {
+								log.Error(err, "Failed to execute host template for ingress %s/%s")
+							} else {
+								pv.Text = template.HTML(sb.String())
+							}
+						}
+
+						if pv.Path != "" {
+							hosts[host].Paths[pv.Path] = &pv
+						}
+					}
 				}
 			}
 		}
