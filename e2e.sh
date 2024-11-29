@@ -71,6 +71,7 @@ kubectl \
   delete \
   --ignore-not-found=true \
   pod \
+  --namespace ingress-links \
   --selector=app.kubernetes.io/name=ingress-links-controller
 
 # Option `wait --for=create` unavailable in CI
@@ -101,7 +102,7 @@ expect_output \
   --attempts 10 \
   --sleep 2 \
   curl \
-  --silent \
+  --no-progress-meter \
   --max-time 2 \
   --header 'Host: links.localhost' \
   localhost:8123
