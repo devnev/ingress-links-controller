@@ -6,10 +6,9 @@ import (
 	"flag"
 	"html/template"
 	"log/slog"
-	"maps"
 	"net/http"
 	"os"
-	"slices"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -27,10 +26,25 @@ import (
 )
 
 type templateValues struct {
-	Hosts []string
+	Hosts map[string]hostValues
 }
 
-var tpl = template.Must(template.New(".").Parse(`{{range .Hosts}}<a href="https://{{.}}">{{.}}</a><br>{{printf "\n" }}{{end}}`))
+type hostValues struct {
+	Host string
+	Text template.HTML
+}
+
+type hostTemplateValue struct {
+	Host    string
+	Ingress *netv1.Ingress
+	Rule    *netv1.IngressRule
+}
+
+var srvTpl = template.Must(template.New(".").Parse(`{{range .Hosts}}<a href="https://{{.Host}}">{{or .Text .Host}}</a><br>{{printf "\n" }}{{end}}`))
+
+const (
+	hostTemplateAnnotation = "ingress-links.nev.dev/host-template"
+)
 
 func main() {
 	logf.SetLogger(logr.FromSlogHandler(slog.Default().Handler()))
@@ -44,16 +58,22 @@ func main() {
 	flag.Parse()
 
 	if *loadTemplates != "" {
-		if _, err := tpl.ParseGlob(*loadTemplates); err != nil {
+		if _, err := srvTpl.ParseGlob(*loadTemplates); err != nil {
 			log.Error(err, "Failed to parse templates from %s", *loadTemplates)
 			os.Exit(1)
 		}
 	}
 	if *template != "" {
-		if _, err := tpl.Parse(*template); err != nil {
+		if _, err := srvTpl.Parse(*template); err != nil {
 			log.Error(err, "Failed to parse template from --template flag")
 			os.Exit(1)
 		}
+	}
+
+	baseTpl, err := srvTpl.Clone()
+	if err != nil {
+		log.Error(err, "Failed to clone templates")
+		os.Exit(1)
 	}
 
 	kubeConf, err := config.GetConfigWithContext(*kubeContext)
@@ -83,7 +103,7 @@ func main() {
 		return nil
 	})
 
-	if err = builder.ControllerManagedBy(m).For(&netv1.Ingress{}).Complete(buildReconciler(log, m.GetClient(), &data)); err != nil {
+	if err = builder.ControllerManagedBy(m).For(&netv1.Ingress{}).Complete(buildReconciler(log, m.GetClient(), &data, baseTpl)); err != nil {
 		log.Error(err, "Failed to create controller")
 	}
 
@@ -99,23 +119,51 @@ func main() {
 	}
 }
 
-func buildReconciler(log logr.Logger, kubeClient client.Client, data *atomic.Pointer[templateValues]) reconcile.TypedReconciler[reconcile.Request] {
+func buildReconciler(log logr.Logger, kubeClient client.Client, data *atomic.Pointer[templateValues], tpl *template.Template) reconcile.TypedReconciler[reconcile.Request] {
 	return reconcile.Func(func(ctx context.Context, r reconcile.Request) (reconcile.Result, error) {
 		is := &netv1.IngressList{}
 		if err := kubeClient.List(ctx, is); err != nil {
 			return reconcile.Result{}, err
 		}
 
-		hosts := map[string]struct{}{}
+		hosts := map[string]hostValues{}
+		var err error
 		for _, item := range is.Items {
+			var hostTpl *template.Template
+			if template := item.Annotations[hostTemplateAnnotation]; template != "" {
+				hostTpl, err = tpl.Clone()
+				if err != nil {
+					return reconcile.Result{}, err
+				}
+				if _, err = hostTpl.Parse(template); err != nil {
+					log.Error(err, "Failed to parse host template from %s annotation for ingress %s/%s, skipping ingress", hostTemplateAnnotation, item.Namespace, item.Name)
+				}
+			}
+
 			for _, rule := range item.Spec.Rules {
 				if host := rule.Host; host != "" {
-					hosts[host] = struct{}{}
+					hv := hostValues{
+						Host: host,
+					}
+					if hostTpl != nil {
+						var sb strings.Builder
+						if err := hostTpl.Execute(&sb, hostTemplateValue{
+							Host:    host,
+							Ingress: &item,
+							Rule:    &rule,
+						}); err != nil {
+							log.Error(err, "Failed to execute host template for ingress %s/%s")
+						} else {
+							hv.Text = template.HTML(sb.String())
+						}
+					}
+
+					hosts[host] = hv
 				}
 			}
 		}
 
-		old := data.Swap(&templateValues{Hosts: slices.Sorted(maps.Keys(hosts))})
+		old := data.Swap(&templateValues{Hosts: hosts})
 		if old == nil {
 			log.Info("First reconcile completed")
 		}
@@ -137,7 +185,7 @@ func buildServer(log logr.Logger, data *atomic.Pointer[templateValues]) *http.Se
 		rw.Header().Add("Content-Type", "text/html")
 		rw.WriteHeader(http.StatusOK)
 
-		err := tpl.Execute(rw, data)
+		err := srvTpl.Execute(rw, data)
 		if err != nil {
 			log.Error(err, "Failed to execute template for response")
 			panic(http.ErrAbortHandler)
