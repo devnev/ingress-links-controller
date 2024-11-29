@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-type TemplateData struct {
+type templateValues struct {
 	Hosts []string
 }
 
@@ -73,23 +73,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	var hostList atomic.Value
+	var data atomic.Pointer[templateValues]
 
 	_ = m.AddHealthzCheck("ping", healthz.Ping)
-	_ = m.AddReadyzCheck("have-host-list", func(req *http.Request) error {
-		if hostList.Load() == nil {
-			return errors.New("host list not loaded")
+	_ = m.AddReadyzCheck("have-data", func(req *http.Request) error {
+		if data.Load() == nil {
+			return errors.New("data not loaded")
 		}
 		return nil
 	})
 
-	if err = builder.ControllerManagedBy(m).For(&netv1.Ingress{}).Complete(buildReconciler(m.GetClient(), &hostList)); err != nil {
+	if err = builder.ControllerManagedBy(m).For(&netv1.Ingress{}).Complete(buildReconciler(m.GetClient(), &data)); err != nil {
 		log.Error(err, "Failed to create controller")
 	}
 
 	_ = m.Add(&manager.Server{
 		Name:            "main",
-		Server:          buildServer(log, &hostList),
+		Server:          buildServer(log, &data),
 		ShutdownTimeout: shutdownTimeout,
 	})
 
@@ -99,35 +99,42 @@ func main() {
 	}
 }
 
-func buildReconciler(kubeClient client.Client, hostList *atomic.Value) reconcile.TypedReconciler[reconcile.Request] {
+func buildReconciler(kubeClient client.Client, data *atomic.Pointer[templateValues]) reconcile.TypedReconciler[reconcile.Request] {
 	return reconcile.Func(func(ctx context.Context, r reconcile.Request) (reconcile.Result, error) {
 		is := &netv1.IngressList{}
 		if err := kubeClient.List(ctx, is); err != nil {
 			return reconcile.Result{}, err
 		}
 
-		hostSet := map[string]struct{}{}
+		hosts := map[string]struct{}{}
 		for _, item := range is.Items {
 			for _, rule := range item.Spec.Rules {
 				if host := rule.Host; host != "" {
-					hostSet[host] = struct{}{}
+					hosts[host] = struct{}{}
 				}
 			}
 		}
 
-		hostList.Store(slices.Sorted(maps.Keys(hostSet)))
+		data.Store(&templateValues{Hosts: slices.Sorted(maps.Keys(hosts))})
 
 		return reconcile.Result{}, nil
 	})
 }
 
-func buildServer(log logr.Logger, hostList *atomic.Value) *http.Server {
+func buildServer(log logr.Logger, data *atomic.Pointer[templateValues]) *http.Server {
 	mux := http.NewServeMux()
 	mux.Handle("GET /{$}", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		data := data.Load()
+		if data == nil {
+			// not ready yet
+			http.NotFound(rw, req)
+			return
+		}
+
 		rw.Header().Add("Content-Type", "text/html")
 		rw.WriteHeader(http.StatusOK)
-		hosts, _ := hostList.Load().([]string)
-		err := tpl.Execute(rw, TemplateData{Hosts: hosts})
+
+		err := tpl.Execute(rw, data)
 		if err != nil {
 			log.Error(err, "Failed to execute template for response")
 			panic(http.ErrAbortHandler)
