@@ -106,13 +106,23 @@ expect_output \
   --max-time 2 \
   --header 'Host: links.localhost' \
   localhost:8123 <<EOF
-<a href="https://links.localhost">links.localhost</a><br>
-<a href="https://links.localhost/alive">/alive</a><br>
-<a href="https://links.localhost/ready">/ready</a><br>
+<!DOCTYPE html>
+<html>
+<head>
+	<style>html{height:100%}body{margin:0;height:100%;display:flex;font-family:sans-serif}#links{margin:auto}a{display:block;margin:2px;text-align:right}</style>
+</head>
+<body >
+	<div id="links">
+		<a class="host" href="https://links.localhost">links.localhost</a>
+			<a class="path" href="https://links.localhost/alive">/alive</a>
+			<a class="path" href="https://links.localhost/ready">/ready</a>
+	</div>
+</body>
+</html>
 EOF
 
 log_success Success!
 
 ## Cleanup
 
-kind delete cluster --name $cluster
+#kind delete cluster --name $cluster

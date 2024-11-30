@@ -54,10 +54,26 @@ type pathTemplateValue struct {
 	Path    *netv1.HTTPIngressPath
 }
 
-var srvTpl = template.Must(template.New(".").Parse(`
-{{- range .Hosts}}<a href="https://{{.Host}}">{{or .Text .Host}}</a><br>
-{{$host := .Host}}{{range .Paths}}{{if ne .Path "/"}}<a href="https://{{$host}}{{.Path}}">{{or .Text .Path}}</a><br>
-{{end}}{{end}}{{end}}`))
+var srvTpl = template.Must(template.New(".").Parse(`<!DOCTYPE html>
+<html>
+<head>
+	<style>html{height:100%}body{margin:0;height:100%;display:flex;font-family:sans-serif}#links{margin:auto}a{display:block;margin:2px;text-align:right}</style>
+</head>
+<body >
+	<div id="links">
+	{{- range .Hosts }}
+		<a class="host" href="https://{{.Host}}">{{or .Text .Host}}</a>
+		{{- $host := .Host -}}
+		{{- range .Paths -}}
+			{{- if ne .Path "/" }}
+			<a class="path" href="https://{{$host}}{{.Path}}">{{or .Text .Path}}</a>
+			{{- end -}}
+		{{end -}}
+	{{end}}
+	</div>
+</body>
+</html>
+`))
 
 const (
 	hostTemplateAnnotation = "ingress-links.nev.dev/host-template"
