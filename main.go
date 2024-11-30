@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"html/template"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -109,23 +111,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	var data atomic.Pointer[templateValues]
+	var pagePtr atomic.Pointer[string]
 
 	_ = m.AddHealthzCheck("ping", healthz.Ping)
-	_ = m.AddReadyzCheck("have-data", func(req *http.Request) error {
-		if data.Load() == nil {
-			return errors.New("data not loaded")
+	_ = m.AddReadyzCheck("have-page", func(req *http.Request) error {
+		if pagePtr.Load() == nil {
+			return errors.New("page not rendered")
 		}
 		return nil
 	})
 
-	if err = builder.ControllerManagedBy(m).For(&netv1.Ingress{}).Complete(buildReconciler(log, m.GetClient(), &data, baseTpl)); err != nil {
+	if err = builder.ControllerManagedBy(m).For(&netv1.Ingress{}).Complete(buildReconciler(log, m.GetClient(), &pagePtr, baseTpl)); err != nil {
 		log.Error(err, "Failed to create controller")
 	}
 
 	_ = m.Add(&manager.Server{
 		Name:            "main",
-		Server:          buildServer(log, &data),
+		Server:          buildServer(log, &pagePtr),
 		ShutdownTimeout: shutdownTimeout,
 	})
 
@@ -135,7 +137,7 @@ func main() {
 	}
 }
 
-func buildReconciler(log logr.Logger, kubeClient client.Client, data *atomic.Pointer[templateValues], tpl *template.Template) reconcile.TypedReconciler[reconcile.Request] {
+func buildReconciler(log logr.Logger, kubeClient client.Client, pagePtr *atomic.Pointer[string], tpl *template.Template) reconcile.TypedReconciler[reconcile.Request] {
 	return reconcile.Func(func(ctx context.Context, r reconcile.Request) (reconcile.Result, error) {
 		is := &netv1.IngressList{}
 		if err := kubeClient.List(ctx, is); err != nil {
@@ -227,8 +229,13 @@ func buildReconciler(log logr.Logger, kubeClient client.Client, data *atomic.Poi
 			}
 		}
 
-		old := data.Swap(&templateValues{Hosts: hosts})
-		if old == nil {
+		var sb strings.Builder
+		if err := srvTpl.Execute(&sb, &templateValues{Hosts: hosts}); err != nil {
+			return reconcile.Result{}, fmt.Errorf("failed to execute page template: %w", err)
+		}
+		page := sb.String()
+		oldPage := pagePtr.Swap(&page)
+		if oldPage == nil {
 			log.Info("First reconcile completed")
 		}
 
@@ -236,11 +243,11 @@ func buildReconciler(log logr.Logger, kubeClient client.Client, data *atomic.Poi
 	})
 }
 
-func buildServer(log logr.Logger, data *atomic.Pointer[templateValues]) *http.Server {
+func buildServer(log logr.Logger, pagePtr *atomic.Pointer[string]) *http.Server {
 	mux := http.NewServeMux()
 	mux.Handle("GET /{$}", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		data := data.Load()
-		if data == nil {
+		page := pagePtr.Load()
+		if page == nil {
 			// not ready yet
 			http.NotFound(rw, req)
 			return
@@ -248,11 +255,8 @@ func buildServer(log logr.Logger, data *atomic.Pointer[templateValues]) *http.Se
 
 		rw.Header().Add("Content-Type", "text/html")
 		rw.WriteHeader(http.StatusOK)
-
-		err := srvTpl.Execute(rw, data)
-		if err != nil {
-			log.Error(err, "Failed to execute template for response")
-			panic(http.ErrAbortHandler)
+		if _, err := io.Copy(rw, strings.NewReader(*page)); err != nil {
+			panic(err.Error())
 		}
 	}))
 	return &http.Server{Handler: mux}
