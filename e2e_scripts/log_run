@@ -1,4 +1,21 @@
 #!/usr/bin/env bash
 
-log "+ $*"
+set -euo pipefail
+
+bash_major_version=${BASH_VERSION%%.*}
+quoted_args=""
+for arg in "$@"; do
+  escaped="$(printf '%q' "$arg")"
+  if [[ $escaped != "$arg" ]]; then
+    if [[ $bash_major_version -ge 4 ]]; then
+      quoted_args+=" ${arg@Q}"
+    else
+      quoted_args+=" $escaped"
+    fi
+  else
+    quoted_args+=" $arg"
+  fi
+done
+
+log "+$quoted_args"
 "$@" || exit $?

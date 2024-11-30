@@ -11,7 +11,7 @@ context=kind-$cluster
 
 # Port mappings and ingress setup from https://kind.sigs.k8s.io/docs/user/ingress/
 
-if ! kind get clusters | grep -q $cluster; then
+if ! kind get clusters | grep --quiet $cluster; then
   kind create cluster --name $cluster --config=- <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
@@ -58,7 +58,7 @@ kubectl \
 
 docker build --quiet --tag $image .
 
-kind load docker-image $image -n $cluster
+kind load docker-image $image --name $cluster
 
 kubectl \
   --context $context \
@@ -115,4 +115,4 @@ log_success Success!
 
 ## Cleanup
 
-kind delete cluster -n $cluster
+kind delete cluster --name $cluster
