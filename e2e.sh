@@ -111,7 +111,7 @@ expect_output \
 <head>
 	<style>html{height:100%}body{margin:0;height:100%;display:flex;font-family:sans-serif}#links{margin:auto}a{display:block;margin:2px;text-align:right}</style>
 </head>
-<body >
+<body>
 	<div id="links">
 		<a class="host" href="https://links.localhost">links.localhost</a>
 			<a class="path" href="https://links.localhost/alive">/alive</a>
@@ -125,4 +125,4 @@ log_success Success!
 
 ## Cleanup
 
-#kind delete cluster --name $cluster
+kind delete cluster --name $cluster

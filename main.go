@@ -10,9 +10,12 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/go-logr/logr"
 	netv1 "k8s.io/api/networking/v1"
@@ -44,6 +47,7 @@ type hostTemplateValue struct {
 }
 
 type pathValues struct {
+	Host string
 	Path string
 	Text template.HTML
 }
@@ -54,23 +58,26 @@ type pathTemplateValue struct {
 	Path    *netv1.HTTPIngressPath
 }
 
-var srvTpl = template.Must(template.New(".").Parse(`<!DOCTYPE html>
+var srvTpl = template.Must(template.New("").Parse(`<!DOCTYPE html>
 <html>
 <head>
-	<style>html{height:100%}body{margin:0;height:100%;display:flex;font-family:sans-serif}#links{margin:auto}a{display:block;margin:2px;text-align:right}</style>
+	{{- block "head" .}}
+	<style>{{block "style" .}}html{height:100%}body{margin:0;height:100%;display:flex;font-family:sans-serif}#links{margin:auto}a{display:block;margin:2px;text-align:right}{{end}}</style>
+	{{- end}}
 </head>
-<body >
+<body>
+	{{- block "body" .}}
 	<div id="links">
 	{{- range .Hosts }}
-		<a class="host" href="https://{{.Host}}">{{or .Text .Host}}</a>
-		{{- $host := .Host -}}
+		{{block "hostlink" .}}<a class="host" href="https://{{.Host}}">{{or .Text .Host}}</a>{{end}}
 		{{- range .Paths -}}
 			{{- if ne .Path "/" }}
-			<a class="path" href="https://{{$host}}{{.Path}}">{{or .Text .Path}}</a>
+			{{block "pathlink" .}}<a class="path" href="https://{{.Host}}{{.Path}}">{{or .Text .Path}}</a>{{end}}
 			{{- end -}}
 		{{end -}}
 	{{end}}
 	</div>
+	{{- end}}
 </body>
 </html>
 `))
@@ -84,22 +91,26 @@ func main() {
 	logf.SetLogger(logr.FromSlogHandler(slog.Default().Handler()))
 	log := logf.Log.WithName("ingress-links-controller")
 
+	flag.Usage = usage
+
 	loadTemplates := flag.String("load-templates", "", "Glob pattern for additional templates files to load")
-	template := flag.String("template", "", "Alternative root template to render")
 	kubeContext := flag.String("context", "", "Context from kubeconfig to use, if not the selected context")
 	shutdownTimeout := flag.Duration("shutdown-timeout", 10*time.Second, "Timeout for graceful shutdown on INT or TERM signal")
+	flag.Func("template", "Alternative templates - use name=tpl to create/replace a non-root template", func(s string) error {
+		name, text, found := strings.Cut(s, "=")
+		if !found || strings.ContainsAny(name, `<>{}'"&`) || strings.ContainsFunc(name, unicode.IsSpace) || strings.ContainsFunc(name, unicode.IsControl) {
+			_, err := srvTpl.Parse(s)
+			return err
+		}
+		_, err := srvTpl.New(name).Parse(text)
+		return err
+	})
 
 	flag.Parse()
 
 	if *loadTemplates != "" {
 		if _, err := srvTpl.ParseGlob(*loadTemplates); err != nil {
 			log.Error(err, "Failed to parse templates from %s", *loadTemplates)
-			os.Exit(1)
-		}
-	}
-	if *template != "" {
-		if _, err := srvTpl.Parse(*template); err != nil {
-			log.Error(err, "Failed to parse template from --template flag")
 			os.Exit(1)
 		}
 	}
@@ -211,7 +222,9 @@ func buildReconciler(log logr.Logger, kubeClient client.Client, pagePtr *atomic.
 					}
 
 					for _, path := range rule.HTTP.Paths {
-						pv := pathValues{}
+						pv := pathValues{
+							Host: host,
+						}
 						switch {
 						case path.PathType == nil:
 						case *path.PathType == netv1.PathTypeExact:
@@ -276,4 +289,24 @@ func buildServer(log logr.Logger, pagePtr *atomic.Pointer[string]) *http.Server 
 		}
 	}))
 	return &http.Server{Handler: mux}
+}
+
+func usage() {
+	fmt.Fprintf(flag.CommandLine.Output(), "Flags for %s:\n", filepath.Base(os.Args[0]))
+	flag.PrintDefaults()
+	fmt.Fprintln(flag.CommandLine.Output(), "The current templates are:")
+	var names []string
+	for _, tpl := range srvTpl.Templates() {
+		names = append(names, tpl.Name())
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		tpl := srvTpl.Lookup(name)
+		if name != "" {
+			fmt.Fprintf(flag.CommandLine.Output(), "  %q:\n\t", name)
+		} else {
+			fmt.Fprintf(flag.CommandLine.Output(), "  root:\n\t")
+		}
+		fmt.Fprintln(flag.CommandLine.Output(), strings.ReplaceAll(strings.Trim(tpl.Tree.Root.String(), "\n"), "\n", "\n\t"))
+	}
 }
