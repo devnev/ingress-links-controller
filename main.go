@@ -62,7 +62,13 @@ var srvTpl = template.Must(template.New("").Parse(`<!DOCTYPE html>
 <html>
 <head>
 	{{- block "head" .}}
-	<style>{{block "style" .}}html{height:100%}body{margin:0;height:100%;display:flex;font-family:sans-serif}#links{margin:auto}a{display:block;margin:2px;text-align:right}{{end}}</style>
+	<style>{{block "style" .}}
+		html { height: 100%; }
+		body { margin: 0; height: 100%; display: flex; font-family: sans-serif; color-scheme: light dark; background-color: Canvas; }
+		#links { margin: auto; padding: 10px; border-radius: 10px; background-color: light-dark(#eee,#333); }
+		a { display: block; margin: 2px; text-align: right; }
+		{{- end}}
+	</style>
 	{{- end}}
 </head>
 <body>
