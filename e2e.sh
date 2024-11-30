@@ -98,14 +98,18 @@ kubectl \
 ## Check
 
 expect_output \
-  --expected '<a href="https://links.localhost">links.localhost</a><br>' \
+  --expected - \
   --attempts 10 \
   --sleep 2 \
   curl \
   --no-progress-meter \
   --max-time 2 \
   --header 'Host: links.localhost' \
-  localhost:8123
+  localhost:8123 <<EOF
+<a href="https://links.localhost">links.localhost</a><br>
+<a href="https://links.localhost/alive">/alive</a><br>
+<a href="https://links.localhost/ready">/ready</a><br>
+EOF
 
 log_success Success!
 

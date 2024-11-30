@@ -56,7 +56,7 @@ type pathTemplateValue struct {
 
 var srvTpl = template.Must(template.New(".").Parse(`
 {{- range .Hosts}}<a href="https://{{.Host}}">{{or .Text .Host}}</a><br>
-{{$host := .Host}}{{range .Paths}}{{if ne .Path "/"}}<a href="https://{{$host}}/{{.Path}}"><br>{{or .Text .Path}}
+{{$host := .Host}}{{range .Paths}}{{if ne .Path "/"}}<a href="https://{{$host}}{{.Path}}">{{or .Text .Path}}</a><br>
 {{end}}{{end}}{{end}}`))
 
 const (

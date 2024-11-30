@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/refs/heads/master/master/ingress-networking-v1.json
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: extra-ingress
+  namespace: ingress-links
+spec:
+  rules:
+    - host: links.localhost
+      http:
+        paths:
+          - pathType: Exact
+            path: /alive
+            backend:
+              service:
+                name: controller
+                port:
+                  number: 80
+          - pathType: Exact
+            path: /ready
+            backend:
+              service:
+                name: controller
+                port:
+                  number: 80
