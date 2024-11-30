@@ -35,7 +35,8 @@ jobs:
           kubeconform: "0.6.7"
       - if: ${{ !cancelled() && steps.install-kube-tools.conclusion == 'success' }}
         run: |
-          for dir in ./kustomize; do
+          set -euo pipefail
+          for dir in ./kustomize/*; do
             kustomize build "$dir" | kubeconform -verbose
           done
       - name: Install KinD
