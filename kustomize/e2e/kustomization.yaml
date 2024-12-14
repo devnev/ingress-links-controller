@@ -4,8 +4,11 @@ kind: Kustomization
 
 resources:
   - ../with-namespace
-  - ingress.yaml
-  - extraIngress.yaml
+  - baseIngress.yaml
+  - extraPathsIngress.yaml
+  - skippedPathIngress.yaml
+  - skippedSubdomainIngress.yaml
+  - sortSensitiveSubdomainIngress.yaml
 
 patches:
   - path: neverPullImage.yaml

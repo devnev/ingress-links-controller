@@ -121,6 +121,7 @@ expect_output \
 		<a class="host" href="https://links.localhost">links.localhost</a>
 			<a class="path" href="https://links.localhost/alive">/alive</a>
 			<a class="path" href="https://links.localhost/ready">/ready</a>
+		<a class="host" href="https://aaa.links.localhost">aaa.links.localhost</a>
 	</div>
 </body>
 </html>
