@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-source "${script_dir}/e2e_scripts/prelude"
+source "${script_dir}/shell/prelude"
 set -x # Use helper scripts (not functions) to keep set -x output meaningful
 
 cluster=ingress-links-controller-test-cluster
@@ -12,19 +12,7 @@ context=kind-$cluster
 # Port mappings and ingress setup from https://kind.sigs.k8s.io/docs/user/ingress/
 
 if ! kind get clusters | grep --quiet $cluster; then
-  kind create cluster --name $cluster --config=- <<EOF
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-nodes:
-- role: control-plane
-  extraPortMappings:
-  - containerPort: 80
-    hostPort: 8123
-    protocol: TCP
-  - containerPort: 443
-    hostPort: 443
-    protocol: TCP
-EOF
+  kind create cluster --name $cluster --config="${script_dir}/manifests/cluster.yaml"
 fi
 
 kubectl \
@@ -63,7 +51,7 @@ kind load docker-image $image --name $cluster
 kubectl \
   --context $context \
   apply \
-  --kustomize ./kustomize/e2e
+  --kustomize "${script_dir}/kustomize"
 
 # Make sure pod actually restarts
 kubectl \
@@ -105,27 +93,7 @@ expect_output \
   --no-progress-meter \
   --max-time 2 \
   --header 'Host: links.localhost' \
-  localhost:8123 <<EOF
-<!DOCTYPE html>
-<html>
-<head>
-	<style>
-		html { height: 100%; }
-		body { margin: 0; height: 100%; display: flex; font-family: sans-serif; color-scheme: light dark; background-color: Canvas; }
-		#links { margin: auto; padding: 10px; border-radius: 10px; background-color: light-dark(#eee,#333); }
-		a { display: block; margin: 2px; text-align: right; }
-	</style>
-</head>
-<body>
-	<div id="links">
-		<a class="host" href="https://links.localhost">links.localhost</a>
-			<a class="path" href="https://links.localhost/alive">/alive</a>
-			<a class="path" href="https://links.localhost/ready">/ready</a>
-		<a class="host" href="https://aaa.links.localhost">aaa.links.localhost</a>
-	</div>
-</body>
-</html>
-EOF
+  localhost:8123 <"${script_dir}/html/output.html"
 
 log_success Success!
 

@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://json.schemastore.org/yamllint.json
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 8123
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP

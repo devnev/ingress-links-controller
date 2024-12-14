@@ -50,7 +50,7 @@ jobs:
       - name: Run E2E
         if: ${{ !cancelled() && steps.install-kind.conclusion == 'success' }}
         run: |
-          ./e2e.sh
+          ./test/e2e.sh
 
   build-and-push:
     runs-on: ubuntu-latest
