@@ -250,14 +250,14 @@ func buildReconciler(log logr.Logger, kubeClient client.Client, pagePtr *atomic.
 						pv.Path = path.Path
 					}
 
-					if hv.Paths[pv.Path] != nil {
+					if pv.Path == "" || hv.Paths[pv.Path] != nil {
 						continue
 					}
 
 					if pathTpl != nil {
 						var sb strings.Builder
-						if err := pathTpl.Execute(&sb, hostTemplateValue{
-							Host:    host,
+						if err := pathTpl.Execute(&sb, pathTemplateValue{
+							Path:    &path,
 							Ingress: &item,
 							Rule:    &rule,
 						}); err != nil {
@@ -267,9 +267,7 @@ func buildReconciler(log logr.Logger, kubeClient client.Client, pagePtr *atomic.
 						}
 					}
 
-					if pv.Path != "" {
-						hosts[host].Paths[pv.Path] = &pv
-					}
+					hosts[host].Paths[pv.Path] = &pv
 				}
 			}
 		}
