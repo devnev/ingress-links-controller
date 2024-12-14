@@ -212,60 +212,63 @@ func buildReconciler(log logr.Logger, kubeClient client.Client, pagePtr *atomic.
 			}
 
 			for _, rule := range item.Spec.Rules {
-				if host := rule.Host; host != "" {
-					if hosts[host] == nil {
-						hosts[host] = &hostValues{
-							Host:  host,
-							Paths: map[string]*pathValues{},
-						}
-					}
-					hv := hosts[host]
+				host := rule.Host
+				if host == "" {
+					continue
+				}
 
-					if hostTpl != nil {
+				if hosts[host] == nil {
+					hosts[host] = &hostValues{
+						Host:  host,
+						Paths: map[string]*pathValues{},
+					}
+				}
+				hv := hosts[host]
+
+				if hostTpl != nil {
+					var sb strings.Builder
+					if err := hostTpl.Execute(&sb, hostTemplateValue{
+						Host:    host,
+						Ingress: &item,
+						Rule:    &rule,
+					}); err != nil {
+						log.Error(err, "Failed to execute host template for ingress %s/%s")
+					} else {
+						hv.Text = template.HTML(sb.String())
+					}
+				}
+
+				for _, path := range rule.HTTP.Paths {
+					pv := pathValues{
+						Host: host,
+					}
+					switch {
+					case path.PathType == nil:
+					case *path.PathType == netv1.PathTypeExact:
+						pv.Path = path.Path
+					case *path.PathType == netv1.PathTypePrefix:
+						pv.Path = path.Path
+					}
+
+					if hv.Paths[pv.Path] != nil {
+						continue
+					}
+
+					if pathTpl != nil {
 						var sb strings.Builder
-						if err := hostTpl.Execute(&sb, hostTemplateValue{
+						if err := pathTpl.Execute(&sb, hostTemplateValue{
 							Host:    host,
 							Ingress: &item,
 							Rule:    &rule,
 						}); err != nil {
 							log.Error(err, "Failed to execute host template for ingress %s/%s")
 						} else {
-							hv.Text = template.HTML(sb.String())
+							pv.Text = template.HTML(sb.String())
 						}
 					}
 
-					for _, path := range rule.HTTP.Paths {
-						pv := pathValues{
-							Host: host,
-						}
-						switch {
-						case path.PathType == nil:
-						case *path.PathType == netv1.PathTypeExact:
-							pv.Path = path.Path
-						case *path.PathType == netv1.PathTypePrefix:
-							pv.Path = path.Path
-						}
-
-						if hv.Paths[pv.Path] != nil {
-							continue
-						}
-
-						if pathTpl != nil {
-							var sb strings.Builder
-							if err := pathTpl.Execute(&sb, hostTemplateValue{
-								Host:    host,
-								Ingress: &item,
-								Rule:    &rule,
-							}); err != nil {
-								log.Error(err, "Failed to execute host template for ingress %s/%s")
-							} else {
-								pv.Text = template.HTML(sb.String())
-							}
-						}
-
-						if pv.Path != "" {
-							hosts[host].Paths[pv.Path] = &pv
-						}
+					if pv.Path != "" {
+						hosts[host].Paths[pv.Path] = &pv
 					}
 				}
 			}
