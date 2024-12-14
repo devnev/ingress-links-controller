@@ -91,6 +91,7 @@ var srvTpl = template.Must(template.New("").Parse(`<!DOCTYPE html>
 const (
 	hostTemplateAnnotation = "ingress-links.nev.dev/host-template"
 	pathTemplateAnnotation = "ingress-links.nev.dev/path-template"
+	skipAnnotation         = "ingress-links.nev.dev/skip"
 )
 
 func main() {
@@ -180,6 +181,10 @@ func buildReconciler(log logr.Logger, kubeClient client.Client, pagePtr *atomic.
 		hosts := map[string]*hostValues{}
 		var err error
 		for _, item := range is.Items {
+			if item.Annotations[skipAnnotation] == "true" {
+				continue
+			}
+
 			var hostTpl *template.Template
 			if template := item.Annotations[hostTemplateAnnotation]; template != "" {
 				hostTpl, err = tpl.Clone()
