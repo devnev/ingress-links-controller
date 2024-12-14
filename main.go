@@ -8,10 +8,12 @@ import (
 	"html/template"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -31,7 +33,7 @@ import (
 )
 
 type templateValues struct {
-	Hosts map[string]*hostValues
+	Hosts []*hostValues
 }
 
 type hostValues struct {
@@ -269,8 +271,23 @@ func buildReconciler(log logr.Logger, kubeClient client.Client, pagePtr *atomic.
 			}
 		}
 
+		// Sort by each segment of the domains starting from the TLD, i.e. the
+		// last segment. Meaning: Subdomains of the same domain are grouped
+		// together, and subdomains come after their parent domain if present.
+		hostsList := slices.Collect(maps.Values(hosts))
+		sort.Slice(hostsList, func(i, j int) bool {
+			isegs, jsegs := strings.Split(hostsList[i].Host, "."), strings.Split(hostsList[j].Host, ".")
+			for ridx := 0; ridx < len(isegs) && ridx < len(jsegs); ridx++ {
+				iseg, jseg := isegs[len(isegs)-ridx-1], jsegs[len(jsegs)-ridx-1]
+				if cmp := strings.Compare(iseg, jseg); cmp != 0 {
+					return cmp < 0
+				}
+			}
+			return len(isegs) < len(jsegs)
+		})
+
 		var sb strings.Builder
-		if err := srvTpl.Execute(&sb, &templateValues{Hosts: hosts}); err != nil {
+		if err := srvTpl.Execute(&sb, &templateValues{Hosts: hostsList}); err != nil {
 			return reconcile.Result{}, fmt.Errorf("failed to execute page template: %w", err)
 		}
 		page := sb.String()
