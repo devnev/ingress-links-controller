@@ -1,0 +1,16 @@
+apiVersion: builtin
+kind: PrefixSuffixTransformer
+metadata:
+  name: ingress-links-prefixer
+prefix: ingress-links-
+fieldSpecs:
+  - kind: Deployment
+    path: metadata/name
+  - kind: Service
+    path: metadata/name
+  - kind: ServiceAccount
+    path: metadata/name
+  - kind: ClusterRoleBinding
+    path: subjects/name
+  - kind: Deployment
+    path: spec/template/metadata/name
